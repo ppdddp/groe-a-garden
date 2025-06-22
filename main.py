@@ -8,6 +8,10 @@ LINE_TOKEN = os.getenv("LINE_TOKEN")
 USER_ID = os.getenv("USER_ID")
 ARDUINO_URL = os.getenv("ARDUINO_URL")
 
+@app.get("/")
+async def root():
+    return {"message": "FastAPI is working!"}
+
 @app.post("/webhook")
 async def webhook(request: Request):
     data = await request.json()
