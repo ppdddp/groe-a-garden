@@ -14,16 +14,23 @@ async def root():
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    data = await request.json()
-    message = data["events"][0]["message"]["text"]
+    try:
+        data = await request.json()
+        print("LINE data:", data)
 
-    if message == "ขอค่าความชื้น":
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{ARDUINO_URL}/moisture")
-            moisture = response.json()["moisture"]
+        message = data["events"][0]["message"]["text"]
 
-        await reply_to_line(f"ค่าความชื้นปัจจุบันคือ {moisture}%")
+        if message == "ขอค่าความชื้น":
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{ARDUINO_URL}/moisture")
+                moisture = response.json()["moisture"]
+            await reply_to_line(f"ค่าความชื้นปัจจุบันคือ {moisture}%")
+
+    except Exception as e:
+        print(" ERROR:", e)
     return {"status": "ok"}
+
+
 
 async def reply_to_line(msg: str):
     headers = {
