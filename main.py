@@ -1,46 +1,79 @@
-from fastapi import FastAPI, Request
-import httpx
+from fastapi import FastAPI, Request, Header
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+import datetime
 import os
+import httpx
 
 app = FastAPI()
 
-LINE_TOKEN = os.getenv("LINE_TOKEN")
-USER_ID = os.getenv("USER_ID")
-ARDUINO_URL = os.getenv("ARDUINO_URL")
+# ตัวแปรเก็บค่าความชื้นล่าสุด
+latest_moisture = {
+    "moisture": None,
+    "sensor_id": None,
+    "timestamp": None
+}
 
-@app.get("/")
-async def root():
-    return {"message": "FastAPI is working!"}
+# Environment Variable
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+
+# โมเดลรับข้อมูลจาก Arduino
+class MoistureData(BaseModel):
+    moisture: float
+    sensor_id: str
+
+@app.post("/report-moisture")
+async def receive_moisture(data: MoistureData):
+    global latest_moisture
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    latest_moisture = {
+        "moisture": data.moisture,
+        "sensor_id": data.sensor_id,
+        "timestamp": now
+    }
+    print(f"[{now}] Received moisture: {data.moisture}% from {data.sensor_id}")
+    return {"status": "received"}
+
+# LINE Webhook
+class LineMessage(BaseModel):
+    type: str
+    text: str
+
+class LineEvent(BaseModel):
+    type: str
+    replyToken: str
+    message: LineMessage
+
+class LineWebhook(BaseModel):
+    events: list[LineEvent]
 
 @app.post("/webhook")
-async def webhook(request: Request):
-    data = await request.json()
-    print("LINE data:", data)
+async def line_webhook(request: Request, x_line_signature: str = Header(None)):
+    body = await request.json()
+    data = LineWebhook.parse_obj(body)
 
-    events = data.get("events", [])
-    if not events:
-        return {"status": "no events"}
+    for event in data.events:
+        user_msg = event.message.text.strip().lower()
+        if user_msg == "ขอค่าความชื้น":
+            if latest_moisture["moisture"] is not None:
+                reply = f"ค่าความชื้น: {latest_moisture['moisture']:.1f}%\nจาก: {latest_moisture['sensor_id']}\nเวลา: {latest_moisture['timestamp']}"
+            else:
+                reply = "ยังไม่มีข้อมูลความชื้นครับ"
+        else:
+            reply = "พิมพ์ว่า 'ขอค่าความชื้น' เพื่อดูข้อมูล"
 
-    message = events[0]["message"]["text"]
+        await reply_to_line(event.replyToken, reply)
 
-    if message == "ขอค่าความชื้น":
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{ARDUINO_URL}/moisture")
-            moisture = response.json()["moisture"]
+    return JSONResponse(content={"status": "ok"})
 
-        await reply_to_line(f"ค่าความชื้นปัจจุบันคือ {moisture}%")
-
-    return {"status": "ok"}
-
-async def reply_to_line(msg: str):
+async def reply_to_line(token: str, message: str):
     headers = {
-        "Authorization": f"Bearer {LINE_TOKEN}",
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
-    body = {
-        "to": USER_ID,
-        "messages": [{"type": "text", "text": msg}]
+    payload = {
+        "replyToken": token,
+        "messages": [{"type": "text", "text": message}]
     }
-
     async with httpx.AsyncClient() as client:
-        await client.post("https://api.line.me/v2/bot/message/push", headers=headers, json=body)
+        await client.post("https://api.line.me/v2/bot/message/reply", headers=headers, json=payload)
