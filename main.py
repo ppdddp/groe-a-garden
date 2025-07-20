@@ -7,17 +7,14 @@ import httpx
 
 app = FastAPI()
 
-# ตัวแปรเก็บค่าความชื้นล่าสุด
 latest_moisture = {
     "moisture": None,
     "sensor_id": None,
     "timestamp": None
 }
 
-# Environment Variable
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 
-# โมเดลรับข้อมูลจาก Arduino
 class MoistureData(BaseModel):
     moisture: float
     sensor_id: str
@@ -25,7 +22,7 @@ class MoistureData(BaseModel):
 @app.post("/report-moisture")
 async def receive_moisture(data: MoistureData):
     global latest_moisture
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.datetime.now()
     latest_moisture = {
         "moisture": data.moisture,
         "sensor_id": data.sensor_id,
@@ -34,7 +31,6 @@ async def receive_moisture(data: MoistureData):
     print(f"[{now}] Received moisture: {data.moisture}% from {data.sensor_id}")
     return {"status": "received"}
 
-# LINE Webhook
 class LineMessage(BaseModel):
     type: str
     text: str
@@ -55,8 +51,13 @@ async def line_webhook(request: Request, x_line_signature: str = Header(None)):
     for event in data.events:
         user_msg = event.message.text.strip().lower()
         if user_msg == "ขอค่าความชื้น":
-            if latest_moisture["moisture"] is not None:
-                reply = f"ค่าความชื้น: {latest_moisture['moisture']:.1f}%\nจาก: {latest_moisture['sensor_id']}\nเวลา: {latest_moisture['timestamp']}"
+            if latest_moisture["moisture"] is not None and latest_moisture["timestamp"] is not None:
+                now = datetime.datetime.now()
+                delta = now - latest_moisture["timestamp"]
+                if delta.total_seconds() <= 60:
+                    reply = f"ค่าความชื้น: {latest_moisture['moisture']:.1f}%"
+                else:
+                    reply = "ยังไม่มีข้อมูลความชื้นล่าสุดครับ"
             else:
                 reply = "ยังไม่มีข้อมูลความชื้นครับ"
         else:
