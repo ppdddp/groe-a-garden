@@ -10,7 +10,8 @@ app = FastAPI()
 latest_moisture = {
     "moisture": None,
     "sensor_id": None,
-    "timestamp": None
+    "timestamp": None,
+    "is_watering": False  # เพิ่มตัวแปรสถานะการเปิดวาล์ว
 }
 
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
@@ -23,12 +24,19 @@ class MoistureData(BaseModel):
 async def receive_moisture(data: MoistureData):
     global latest_moisture
     now = datetime.datetime.now()
-    latest_moisture = {
-        "moisture": data.moisture,
-        "sensor_id": data.sensor_id,
-        "timestamp": now
-    }
-    print(f"[{now}] Received moisture: {data.moisture}% from {data.sensor_id}")
+    
+    latest_moisture["moisture"] = data.moisture
+    latest_moisture["sensor_id"] = data.sensor_id
+    latest_moisture["timestamp"] = now
+
+    # เช็คเงื่อนไขการปล่อยน้ำ
+    if data.moisture < 30 and not latest_moisture["is_watering"]:
+        latest_moisture["is_watering"] = True
+        await notify_line("ทำการปล่อยน้ำแล้ว 💧")
+    elif data.moisture >= 60 and latest_moisture["is_watering"]:
+        latest_moisture["is_watering"] = False
+
+    print(f"[{now}] Moisture: {data.moisture}% from {data.sensor_id}")
     return {"status": "received"}
 
 class LineMessage(BaseModel):
@@ -51,10 +59,9 @@ async def line_webhook(request: Request, x_line_signature: str = Header(None)):
     for event in data.events:
         user_msg = event.message.text.strip().lower()
         if user_msg == "ขอค่าความชื้น":
-            if latest_moisture["moisture"] is not None and latest_moisture["timestamp"] is not None:
+            if latest_moisture["moisture"] and latest_moisture["timestamp"]:
                 now = datetime.datetime.now()
-                delta = now - latest_moisture["timestamp"]
-                if delta.total_seconds() <= 60:
+                if (now - latest_moisture["timestamp"]).total_seconds() <= 60:
                     reply = f"ค่าความชื้น: {latest_moisture['moisture']:.1f}%"
                 else:
                     reply = "ยังไม่มีข้อมูลความชื้นครับ"
@@ -78,3 +85,15 @@ async def reply_to_line(token: str, message: str):
     }
     async with httpx.AsyncClient() as client:
         await client.post("https://api.line.me/v2/bot/message/reply", headers=headers, json=payload)
+
+async def notify_line(message: str):
+    headers = {
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "to": os.getenv("LINE_USER_ID"),  # ตั้งค่าใน Render
+        "messages": [{"type": "text", "text": message}]
+    }
+    async with httpx.AsyncClient() as client:
+        await client.post("https://api.line.me/v2/bot/message/push", headers=headers, json=payload)
