@@ -57,9 +57,9 @@ async def line_webhook(request: Request, x_line_signature: str = Header(None)):
                 if delta.total_seconds() <= 60:
                     reply = f"ค่าความชื้น: {latest_moisture['moisture']:.1f}%"
                 else:
-                    reply = "ไม่สามารถรับข้อมูลจาก Arduino ได้ในช่วง 1 นาทีที่ผ่านมา อาจเกิดจากแบตหมดหรืออุปกรณ์ขัดข้อง"
+                    reply = "ยังไม่มีข้อมูลความชื้นครับ"
             else:
-                reply = "ยังไม่มีข้อมูลความชื้นครับ"
+                reply = "ไม่สามารถรับข้อมูลจาก Arduino ได้ในช่วง 1 นาทีที่ผ่านมา อาจเกิดจากแบตหมดหรืออุปกรณ์ขัดข้อง"
         else:
             reply = "พิมพ์ว่า 'ขอค่าความชื้น' เพื่อดูข้อมูล"
 
